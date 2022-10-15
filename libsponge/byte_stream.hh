@@ -2,6 +2,7 @@
 #define SPONGE_LIBSPONGE_BYTE_STREAM_HH
 
 #include <string>
+#include <deque>
 
 //! \brief An in-order byte stream.
 
@@ -10,6 +11,12 @@
 //! and then no more bytes can be written.
 class ByteStream {
   private:
+    std::deque<char> _buffer = {};
+    size_t _capacity;
+    size_t _read_count = 0;
+    size_t _write_count = 0;
+    bool _eof = false;
+    bool _input_end = false;
     // Your code here -- add private members as necessary.
 
     // Hint: This doesn't need to be a sophisticated data structure at
@@ -17,7 +24,7 @@ class ByteStream {
     // that's a sign that you probably want to keep exploring
     // different approaches.
 
-    bool _error{};  //!< Flag indicating that the stream suffered an error.
+    bool _error = 0;  //!< Flag indicating that the stream suffered an error.
 
   public:
     //! Construct a stream with room for `capacity` bytes.

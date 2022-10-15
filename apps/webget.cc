@@ -4,9 +4,8 @@
 #include <cstdlib>
 #include <iostream>
 
-using namespace std;
 
-void get_URL(const string &host, const string &path) {
+void get_URL(const std::string &host, const std::string &path) {
     // Your code here.
 
     // You will need to connect to the "http" service on
@@ -16,9 +15,17 @@ void get_URL(const string &host, const string &path) {
     // Then you'll need to print out everything the server sends back,
     // (not just one call to read() -- everything) until you reach
     // the "eof" (end of file).
-
-    cerr << "Function called: get_URL(" << host << ", " << path << ").\n";
-    cerr << "Warning: get_URL() has not been implemented yet.\n";
+    TCPSocket sock{};
+    sock.connect(Address(host,"http"));
+    sock.write("GET "+path+" HTTP/1.1\r\nHost: "+host+"\r\n\r\n");
+    sock.shutdown(SHUT_WR);
+    while(!sock.eof()){
+        std::cout<<sock.read();
+    }
+    sock.close();
+    return;
+    std::cerr << "Function called: get_URL(" << host << ", " << path << ").\n";
+    std::cerr << "Warning: get_URL() has not been implemented yet.\n";
 }
 
 int main(int argc, char *argv[]) {
@@ -31,19 +38,19 @@ int main(int argc, char *argv[]) {
         // Print the usage message unless there are these two arguments (plus the program name
         // itself, so arg count = 3 in total).
         if (argc != 3) {
-            cerr << "Usage: " << argv[0] << " HOST PATH\n";
-            cerr << "\tExample: " << argv[0] << " stanford.edu /class/cs144\n";
+            std::cerr << "Usage: " << argv[0] << " HOST PATH\n";
+            std::cerr << "\tExample: " << argv[0] << " stanford.edu /class/cs144\n";
             return EXIT_FAILURE;
         }
 
         // Get the command-line arguments.
-        const string host = argv[1];
-        const string path = argv[2];
+        const std::string host = argv[1];
+        const std::string path = argv[2];
 
         // Call the student-written function.
         get_URL(host, path);
-    } catch (const exception &e) {
-        cerr << e.what() << "\n";
+    } catch (const std::exception &e) {
+        std::cerr << e.what() << "\n";
         return EXIT_FAILURE;
     }
 
