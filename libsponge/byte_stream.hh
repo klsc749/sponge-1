@@ -19,9 +19,9 @@ class ByteStream {
     // different approaches.
 
     std::deque<char> _bytes{};
-    size_t _capacity{};
-    size_t _bytes_written{};
-    size_t _bytes_read{};
+    size_t _capacity = 0;
+    size_t _bytes_written = 0;
+    size_t _bytes_read = 0;
 
     bool _end_input = false;
     bool _error = false;  //!< Flag indicating that the stream suffered an error.
