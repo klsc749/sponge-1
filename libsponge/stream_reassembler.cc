@@ -9,125 +9,102 @@
 template <typename... Targs>
 void DUMMY_CODE(Targs &&... /* unused */) {}
 
-using namespace std;
+StreamReassembler::StreamReassembler(const size_t capacity) : _output(capacity), _capacity(capacity) {
+    _buffer.resize(capacity);
+}
 
-StreamReassembler::StreamReassembler(const size_t capacity) : _output(capacity), _capacity(capacity) {}
+long StreamReassembler::merge_block(block_node &elm1, const block_node &elm2) {
+    block_node x, y;
+    if (elm1.begin > elm2.begin) {
+        x = elm2;
+        y = elm1;
+    } else {
+        x = elm1;
+        y = elm2;
+    }
+    if (x.begin + x.length < y.begin) {
+        return -1;  // no intersection, couldn't merge
+    } else if (x.begin + x.length >= y.begin + y.length) {
+        elm1 = x;
+        return y.length;
+    } else {
+        elm1.begin = x.begin;
+        elm1.data = x.data + y.data.substr(x.begin + x.length - y.begin);
+        elm1.length = elm1.data.length();
+        return x.begin + x.length - y.begin;
+    }
+}
 
 //! \details This function accepts a substring (aka a segment) of bytes,
 //! possibly out-of-order, from the logical stream, and assembles any newly
 //! contiguous substrings and writes them into the output stream in order.
-void StreamReassembler::push_substring(const string &data, const size_t index, const bool eof) {
-    if(eof){
-        _eof_index = index + data.size();
-        _eof_flag = true;
-    }
-    size_t len = data.length();
-
-    if(index > _wait_index){
-        if(full() || _output.input_ended()){
-            return;
-        }
-
-        if(_unreassemble.count(index) != 0){
-            _unreassemble[index] = data;
-        }else{
-            _unreassemble.insert({index, data});
-        }
-        
-        merge_unassembled_bytes();
-    }else{
-        if((index + len) >= _wait_index){
-            size_t num_needed_write = index + len  -_wait_index;
-            size_t write_len = _output.write(string().assign(data.begin() + (_wait_index - index), data.end()));
-            _wait_index += write_len;
-            if(write_len < num_needed_write){
-                _unreassemble.insert({_wait_index, string().assign(data.begin() + (_wait_index - index), data.end())});
-                merge_unassembled_bytes();
-            }
-        }
-    }
-
-    push_unassembled_bytes();
-
-    if(_eof_flag && _wait_index == _eof_index){
-        _output.end_input();
-    }
-
-    calculate_num_unassemble_bytes();
-} 
-
-size_t StreamReassembler::unassembled_bytes() const { return _num_unassemble_bytes; }
-
-bool StreamReassembler::empty() const { return _unreassemble.size() == 0; }
-
-void StreamReassembler::merge_unassembled_bytes(){
-    std::map<size_t, std::string>::iterator it = _unreassemble.begin();
-    size_t f_index = it->first;
-    std::string f_string = it->second;
-    size_t f_end = f_index + f_string.length();
-    std::map<size_t, std::string>::iterator f_it = it;
-    size_t cur_index{};
-    std::string cur_string{};
-    size_t cur_end{};
-    ++it;
-    while (it != _unreassemble.cend())
-    {
-        cur_index = it->first;
-        cur_string = it->second;
-        cur_end = cur_index + cur_string.length();
-        if(cur_index <= f_end) {
-            if(cur_end > f_end){
-                f_it->second = f_string + string().assign(cur_string.begin() + (f_end - cur_index), cur_string.end());
-                f_end = cur_end;
-                f_string = f_it->second;
-            }
-            it = _unreassemble.erase(it);
-        }
-        else{
-            f_index = it->first;
-            f_string = it->second;
-            f_end = f_string.size() + f_index;
-            ++it;
-        }
-    }
- 
-}
-
-void StreamReassembler::calculate_num_unassemble_bytes(){
-    std::map<size_t, std::string>::iterator it = _unreassemble.begin();
-    size_t new_num = 0;
-    while (it != _unreassemble.cend())
-    {
-        new_num += it->second.length();
-        it++;
-    }
-    
-    _num_unassemble_bytes = new_num;
-}
-
-bool StreamReassembler::full(){
-    push_unassembled_bytes();
-    return unassembled_bytes() == _capacity;
-}
-
-void StreamReassembler::push_unassembled_bytes(){
-    if(_unreassemble.size() == 0){
+void StreamReassembler::push_substring(const std::string &data, const size_t index, const bool eof) {
+    if (index >= _head_index + _capacity) {  // capacity over
         return;
     }
-    std::map<size_t, std::string>::iterator it = _unreassemble.begin();
-    while (it != _unreassemble.end() && ((it->first + it->second.length() - 1) < _wait_index))
-    {
-        it = _unreassemble.erase(it);
+
+    // handle extra substring prefix
+    block_node elm;
+    if (index + data.length() <= _head_index) {  // couldn't equal, because there have emtpy substring
+        goto JUDGE_EOF;
+    } else if (index < _head_index) {
+        size_t offset = _head_index - index;
+        elm.data.assign(data.begin() + offset, data.end());
+        elm.begin = index + offset;
+        elm.length = elm.data.length();
+    } else {
+        elm.begin = index;
+        elm.length = data.length();
+        elm.data = data;
     }
-    
-    if(it != _unreassemble.end() && it->first <= _wait_index && (it->first + it->second.length() - 1) >= _wait_index){
-        size_t write_len = _output.write(string().assign(it->second.begin() + (_wait_index - it->first), it->second.end()));
-        _wait_index += write_len;
-        if(write_len < it->second.length()){
-            int num_unwrite = it->second.length() - write_len;
-            it->second = string().assign(it->second.end() - num_unwrite, it->second.end());            
-        }else{
-            _unreassemble.erase(it);
+    _unassembled_byte += elm.length;
+
+    // merge substring
+    do {
+        // merge next
+        long merged_bytes = 0;
+        auto iter = _blocks.lower_bound(elm);
+        while (iter != _blocks.end() && (merged_bytes = merge_block(elm, *iter)) >= 0) {
+            _unassembled_byte -= merged_bytes;
+            _blocks.erase(iter);
+            iter = _blocks.lower_bound(elm);
         }
+        // merge prev
+        if (iter == _blocks.begin()) {
+            break;
+        }
+        iter--;
+        while ((merged_bytes = merge_block(elm, *iter)) >= 0) {
+            _unassembled_byte -= merged_bytes;
+            _blocks.erase(iter);
+            iter = _blocks.lower_bound(elm);
+            if (iter == _blocks.begin()) {
+                break;
+            }
+            iter--;
+        }
+    } while (false);
+    _blocks.insert(elm);
+
+    // write to ByteStream
+    if (!_blocks.empty() && _blocks.begin()->begin == _head_index) {
+        const block_node head_block = *_blocks.begin();
+        // modify _head_index and _unassembled_byte according to successful write to _output
+        size_t write_bytes = _output.write(head_block.data);
+        _head_index += write_bytes;
+        _unassembled_byte -= write_bytes;
+        _blocks.erase(_blocks.begin());
+    }
+
+JUDGE_EOF:
+    if (eof) {
+        _eof_flag = true;
+    }
+    if (_eof_flag && empty()) {
+        _output.end_input();
     }
 }
+
+size_t StreamReassembler::unassembled_bytes() const { return _unassembled_byte; }
+
+bool StreamReassembler::empty() const { return _unassembled_byte == 0; }
